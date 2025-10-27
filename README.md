@@ -2,6 +2,8 @@
 
 A vibecoded warp drive solution finder using a neural network.
 
+![smooth_warp_bubble_3d](https://github.com/user-attachments/assets/20c3817f-fae9-4af1-9252-7791ae5666e2)
+
 ![smooth_warp_bubble_3d](https://github.com/user-attachments/assets/9bc20764-db41-4f32-897b-fe103ea632cf)
 
 <img width="1200" height="800" alt="warp_1" src="https://github.com/user-attachments/assets/d2e79c60-6a04-4027-9f9c-36f771b3eb62" />
