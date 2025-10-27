@@ -13,23 +13,33 @@ import time
 # ============================================================================
 
 class TimeDependentWarpDriveNN(nn.Module):
-    def __init__(self, hidden_dim=128, num_layers=6):
+    def __init__(self, hidden_dim=1024, num_layers=1000):
         super(TimeDependentWarpDriveNN, self).__init__()
         
         layers = []
         layers.append(nn.Linear(5, hidden_dim))  # Input: (t, x, y, z, phase)
-        layers.append(nn.Tanh())
+        # layers.append(nn.Tanh())
+        layers.append(nn.ELU())
         
         for _ in range(num_layers - 2):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.Tanh())
+            # layers.append(nn.Tanh())
+            layers.append(nn.ELU())
             
         layers.append(nn.Linear(hidden_dim, 10))  # Output: 10 metric components
         
         self.network = nn.Sequential(*layers)
         
     def forward(self, coordinates):
-        return self.network(coordinates)
+        # return self.network(coordinates)
+        x = coordinates
+        x = self.network[0](x)
+        x = self.network[1](x)
+        skip = x
+        for i in range(len(self.network)-3):
+            x = self.network[i+2](x) + skip
+        x = self.network[-1](x)
+        return x
 
 # ============================================================================
 # 2. PROPULSION-OPTIMIZED OBJECTIVE FUNCTION
@@ -39,20 +49,20 @@ class PropulsiveWarpDriveObjective:
     def __init__(self, weights=None):
         self.weights = weights or {
             'einstein': 1.0,
-            'warp_bubble': 2.0,
-            'energy_violation': 1.5,
-            'energy_minimization': 3.0,
+            'warp_bubble': 1.0,
+            'energy_violation': 1.0,
+            'energy_minimization': 1.0,
             'causality': 1.0,
-            'boundary': 0.5,
-            'regularity': 0.3,
-            'time_evolution': 5.0,
-            'bubble_dynamics': 4.0,
-            'propulsion': 4.0,  # Strong weight for propulsion!
-            'negative_energy_forward': 2.0,
-            'positive_energy_aft': 2.0,
-            'mass_energy': 2.0,
-            'dynamic_evolution': 20.0,
-            'boundary_phases': 10.0
+            'boundary': 1.0,
+            'regularity': 1.0,
+            'time_evolution': 1.0,
+            'bubble_dynamics': 1.0,
+            'propulsion': 1.0,  # Strong weight for propulsion!
+            'negative_energy_forward': 1.0,
+            'positive_energy_aft': 1.0,
+            'mass_energy': 0.0,
+            'dynamic_evolution': 1.0,
+            'boundary_phases': 1.0
         }
     
     def __call__(self, model, coordinates):
@@ -525,6 +535,7 @@ class PropulsiveWarpDriveObjective:
         # ELEGANT LOSS: FASTER IS BETTER
         # Use negative exponential to reward high velocities
         propulsion_loss = torch.mean(torch.exp(-velocity))  # Minimize this = maximize velocity
+        # propulsion_loss = torch.mean(-velocity)
         
         # Penalize negative velocities heavily
         wrong_direction_penalty = torch.mean(torch.nn.functional.softplus(-velocity * 10.0))
@@ -532,7 +543,7 @@ class PropulsiveWarpDriveObjective:
         # Encourage strong warp effects (large |g_tx|)
         warp_strength_penalty = torch.mean(torch.exp(-torch.abs(g_tx) * 5.0))
         
-        return propulsion_loss + wrong_direction_penalty + warp_strength_penalty
+        return propulsion_loss #+ wrong_direction_penalty #+ warp_strength_penalty
     
     def compute_negative_energy_forward_loss(self, model, spatial_coords, phase):
         batch_size = spatial_coords.shape[0]
@@ -630,7 +641,8 @@ class PropulsiveWarpDriveTrainer:
     def __init__(self, model, objective):
         self.model = model
         self.objective = objective
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        self.optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        # self.optimizer = torch.optim.SGD(model.parameters(), lr=1e-5)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=50)
         self.propulsion_history = {
             'net_force': [], 'forward_velocity': [], 'velocity_gradient': [], 'energy_difference': []
@@ -645,6 +657,7 @@ class PropulsiveWarpDriveTrainer:
             
             self.optimizer.zero_grad()
             total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
             self.optimizer.step()
             self.scheduler.step(total_loss)
             
@@ -1026,7 +1039,7 @@ if __name__ == "__main__":
     propulsion_trainer = PropulsiveWarpDriveTrainer(model, propulsion_objective)
     
     # Train with propulsion optimization
-    propulsion_trainer.train_with_propulsion(epochs=200, batch_size=2048, validation_interval=100)
+    propulsion_trainer.train_with_propulsion(epochs=100, batch_size=10000, validation_interval=1)
     
     print("\n" + "="*60)
     print("PROPULSION-OPTIMIZED TRAINING COMPLETE!")
