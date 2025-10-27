@@ -2,6 +2,8 @@
 
 A vibecoded warp drive solution finder using a neural network.
 
+![propulsive_warp_drive](https://github.com/user-attachments/assets/e972b177-ea5a-4008-b893-6acef56706a6)
+
 ![propulsive_warp_drive](https://github.com/user-attachments/assets/a18952c3-32bd-4fe7-bb49-e42ec92359bf)
 
 ![propulsive_warp_drive](https://github.com/user-attachments/assets/8acdbeee-8495-49c4-8a83-e86b4e0a0005)
