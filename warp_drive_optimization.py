@@ -42,6 +42,108 @@ class TimeDependentWarpDriveNN(nn.Module):
         return x
 
 # ============================================================================
+# 1. EINSTEIN-CONSTRAINED NEURAL NETWORK ARCHITECTURE
+# ============================================================================
+
+class EinsteinConstrainedWarpDriveNN(nn.Module):
+    def __init__(self, hidden_dim=128, num_layers=6):
+        super().__init__()
+        # Network learns a scalar potential Φ(t,x,y,z,phase)
+        self.potential_network = nn.Sequential(
+            nn.Linear(5, hidden_dim), 
+            nn.Tanh(),
+            *[nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh()) 
+              for _ in range(num_layers-2)],
+            nn.Linear(hidden_dim, 1)  # Output: scalar potential Φ
+        )
+    
+    def forward(self, coordinates):
+        # For validation/inference: use a simpler approach without gradients
+        if not coordinates.requires_grad:
+            # Simple forward pass without derivative computation
+            phi = self.potential_network(coordinates)
+            
+            # Use finite differences to approximate derivatives for validation
+            eps = 1e-4
+            batch_size = coordinates.shape[0]
+            
+            # Approximate ∂Φ/∂x using finite differences
+            coords_plus_x = coordinates.clone()
+            coords_plus_x[:, 1] += eps  # perturb x coordinate
+            phi_plus_x = self.potential_network(coords_plus_x)
+            dphi_dx = (phi_plus_x - phi) / eps
+            
+            # Similarly for other derivatives...
+            coords_plus_y = coordinates.clone()
+            coords_plus_y[:, 2] += eps
+            phi_plus_y = self.potential_network(coords_plus_y)
+            dphi_dy = (phi_plus_y - phi) / eps
+            
+            coords_plus_z = coordinates.clone()
+            coords_plus_z[:, 3] += eps  
+            phi_plus_z = self.potential_network(coords_plus_z)
+            dphi_dz = (phi_plus_z - phi) / eps
+            
+            phi = phi.squeeze()
+            dphi_dx = dphi_dx.squeeze()
+            dphi_dy = dphi_dy.squeeze()
+            dphi_dz = dphi_dz.squeeze()
+            
+        else:
+            # For training: use exact gradients
+            coordinates = coordinates.clone().requires_grad_(True)
+            phi = self.potential_network(coordinates)
+            
+            gradients = torch.autograd.grad(
+                phi, coordinates, 
+                grad_outputs=torch.ones_like(phi),
+                create_graph=True, 
+                retain_graph=True
+            )[0]
+            
+            phi = phi.squeeze()
+            dphi_dx = gradients[:, 1]
+            dphi_dy = gradients[:, 2]  
+            dphi_dz = gradients[:, 3]
+        
+        # Construct metric (same for both cases)
+        batch_size = coordinates.shape[0]
+        g = torch.zeros(batch_size, 4, 4, device=coordinates.device)
+        
+        g[:, 0, 0] = -1.0 + 0.1 * phi**2
+        g[:, 0, 1] = -dphi_dx * 2.0
+        g[:, 1, 0] = -dphi_dx * 2.0
+        g[:, 0, 2] = -dphi_dy * 0.5
+        g[:, 2, 0] = -dphi_dy * 0.5
+        g[:, 0, 3] = -dphi_dz * 0.5
+        g[:, 3, 0] = -dphi_dz * 0.5
+        
+        g[:, 1, 1] = 1.0 + 0.05 * dphi_dx**2
+        g[:, 2, 2] = 1.0 + 0.05 * dphi_dy**2  
+        g[:, 3, 3] = 1.0 + 0.05 * dphi_dz**2
+        
+        g[:, 1, 2] = 0.02 * dphi_dx * dphi_dy
+        g[:, 2, 1] = 0.02 * dphi_dx * dphi_dy
+        g[:, 1, 3] = 0.02 * dphi_dx * dphi_dz
+        g[:, 3, 1] = 0.02 * dphi_dx * dphi_dz
+        g[:, 2, 3] = 0.02 * dphi_dy * dphi_dz  
+        g[:, 3, 2] = 0.02 * dphi_dy * dphi_dz
+        
+        # Flatten to 10 components
+        metric_flat = torch.zeros(batch_size, 10, device=coordinates.device)
+        indices = [(0,0), (0,1), (0,2), (0,3), (1,1), (1,2), (1,3), (2,2), (2,3), (3,3)]
+        
+        for idx, (i, j) in enumerate(indices):
+            metric_flat[:, idx] = g[:, i, j]
+        
+        return metric_flat
+
+# Then in your main execution, replace:
+# model = TimeDependentWarpDriveNN(hidden_dim=128, num_layers=6)
+# With:
+# model = EinsteinConstrainedWarpDriveNN(hidden_dim=128, num_layers=6)
+
+# ============================================================================
 # 2. PROPULSION-OPTIMIZED OBJECTIVE FUNCTION
 # ============================================================================
 
@@ -51,7 +153,7 @@ class PropulsiveWarpDriveObjective:
             'einstein': 1.0,
             'warp_bubble': 1.0,
             'energy_violation': 1.0,
-            'energy_minimization': 1.0,
+            'energy_minimization': 0.0,
             'causality': 1.0,
             'boundary': 1.0,
             'regularity': 1.0,
@@ -1034,12 +1136,13 @@ if __name__ == "__main__":
     print("Training neural network to find novel, propulsive warp drive solutions...")
     
     # Initialize model and objective
-    model = TimeDependentWarpDriveNN(hidden_dim=128, num_layers=6)
+    # model = TimeDependentWarpDriveNN(hidden_dim=128, num_layers=6)
+    model = EinsteinConstrainedWarpDriveNN(hidden_dim=20, num_layers=6)
     propulsion_objective = PropulsiveWarpDriveObjective()
     propulsion_trainer = PropulsiveWarpDriveTrainer(model, propulsion_objective)
     
     # Train with propulsion optimization
-    propulsion_trainer.train_with_propulsion(epochs=100, batch_size=10000, validation_interval=1)
+    propulsion_trainer.train_with_propulsion(epochs=1000, batch_size=32, validation_interval=1)
     
     print("\n" + "="*60)
     print("PROPULSION-OPTIMIZED TRAINING COMPLETE!")
